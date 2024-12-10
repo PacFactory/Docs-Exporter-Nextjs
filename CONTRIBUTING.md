@@ -1,4 +1,4 @@
-# Contributing to Astro Documentation PDF Generator
+# Contributing to Nextjs Documentation PDF Generator
 
 Thank you for your interest in contributing to this project!
 
