@@ -32,10 +32,10 @@ Fork of the original [Docs-Exporter](https://github.com/Riyooo/Docs-Exporter). T
   - `gitpython`
 - Ensure you have Playwright installed and configured:
 
-  ```bash
-  pip install playwright
-  playwright install
-  ```
+		```bash
+ 		 pip install playwright
+	 	 playwright install
+		  ```
 
 ### Clone the Repository and Install
 Clone the project repository, create a virtual environment, activate it, and install requirements.
