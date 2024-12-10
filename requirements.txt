@@ -1,6 +1,7 @@
-GitPython
-Markdown
-pdfkit
-PyYAML
-packaging
-tqdm
+# requirements.txt
+gitpython==3.1.40
+markdown==3.5.1
+packaging==23.2
+playwright==1.40.0
+PyYAML==6.0.1
+tqdm==4.66.1

@@ -1,6 +1,5 @@
 import os
 import markdown
-import pdfkit
 import tempfile
 import yaml
 import re
@@ -9,6 +8,7 @@ from git import Repo, RemoteProgress
 from datetime import datetime
 from packaging import version
 from tqdm import tqdm
+from playwright.sync_api import sync_playwright
 
 
 def process_image_paths(md_content):
@@ -76,14 +76,13 @@ class CloneProgress(RemoteProgress):
     def update(self, op_code, cur_count, max_count=None, message=''):
         if max_count is not None:
             self.pbar.total = max_count
-        self.pbar.update(cur_count - self.pbar.n)  # increment the pbar with the increment
+        self.pbar.update(cur_count - self.pbar.n)
 
     def finalize(self):
         self.pbar.close()
 
-# Clone a specific directory of a repository / branch
+
 def clone_repo(repo_url, branch, docs_dir, repo_dir):
-    # Initialize and configure the repository for sparse checkout
     if not os.path.isdir(repo_dir):
         os.makedirs(repo_dir, exist_ok=True)
         print("Cloning repository...")
@@ -91,17 +90,13 @@ def clone_repo(repo_url, branch, docs_dir, repo_dir):
         with repo.config_writer() as git_config:
             git_config.set_value("core", "sparseCheckout", "true")
 
-        # Define the sparse checkout settings
         with open(os.path.join(repo_dir, ".git/info/sparse-checkout"), "w") as sparse_checkout_file:
             sparse_checkout_file.write(f"/{docs_dir}\n")
 
-        # Pull the specific directory from the repository
         origin = repo.create_remote("origin", repo_url)
         origin.fetch(progress=CloneProgress())
         repo.git.checkout(branch)
         print("Repository cloned.")
-
-    # Update the repository if it already exists
     else:
         print("Repository already exists. Updating...")
         repo = Repo(repo_dir)
@@ -114,54 +109,37 @@ def clone_repo(repo_url, branch, docs_dir, repo_dir):
 
 def is_file_open(file_path):
     if not os.path.exists(file_path):
-        return False  # File does not exist, so it's not open
-
+        return False
     try:
-        # Try to open the file in append mode. If the file is open in another program, this might fail
         with open(file_path, 'a'):
             pass
         return False
     except PermissionError:
-        # If a PermissionError is raised, it's likely the file is open elsewhere
         return True
 
 
 def get_files_sorted(root_dir):
     all_files = []
-
-    # Step 1: Traverse the directory structure
     for root, _, files in os.walk(root_dir):
         for file in files:
             full_path = os.path.join(root, file)
-
-            # Step 2: Prioritize 'index.mdx' or 'index.md' within the same folder
             modified_basename = '!!!' + file if file in ['index.mdx', 'index.md'] else file
             sort_key = os.path.join(root, modified_basename)
-
-            # Add tuple to the list
             all_files.append((full_path, sort_key))
-
-    # Step 3: Perform a global sort based on modified basename
     all_files.sort(key=lambda x: x[1])
-
-    # Step 4: Return the full paths in sorted order
     return [full_path for full_path, _ in all_files]
 
 
 def preprocess_frontmatter(frontmatter):
-    # Dictionary to store HTML tags and their placeholders
     html_tags = {}
 
-    # Function to replace HTML tags with placeholders
     def replace_tag(match):
         tag = match.group(0)
         placeholder = f"HTML_TAG_{len(html_tags)}"
         html_tags[placeholder] = tag
         return placeholder
 
-    # Replace HTML tags with placeholders
     modified_frontmatter = re.sub(r'<[^>]+>', replace_tag, frontmatter)
-
     return modified_frontmatter, html_tags
 
 
@@ -171,18 +149,15 @@ def restore_html_tags(parsed_data, html_tags):
             if isinstance(value, str):
                 for placeholder, tag in html_tags.items():
                     value = value.replace(placeholder, tag)
-                # if key == 'title':  # Escape HTML characters for titles
                 value = html.escape(value)
                 parsed_data[key] = value
     return parsed_data
 
 
 def process_files(files, repo_dir, docs_dir):
-    # Initialize the Table of Contents
-    toc = ""  
+    toc = ""
     html_all_pages_content = ""
 
-    # Initialize an empty string to hold all the HTML content & Include the main CSS directly in the HTML
     html_header = f"""
     <html>
     <head>
@@ -193,63 +168,43 @@ def process_files(files, repo_dir, docs_dir):
     <body>
     """
 
-    numbering = [0]  # Starting with the first level
+    numbering = [0]
 
     for index, file_path in enumerate(files):
         with open(file_path, 'r', encoding='utf8') as f:
             md_content = f.read()
 
-            # Process the markdown content for image paths
             if Change_img_url:
                 md_content = process_image_paths(md_content)
 
-            # Process the markdown content for non standard code blocks
             md_content = preprocess_code_blocks(md_content)
-
-            # Parse the frontmatter and markdown
             frontmatter, md_content = parse_frontmatter(md_content)
 
             if frontmatter:
-                # Preprocessing: replaces HTML tags with unique placeholders and stores the mappings
                 frontmatter, html_tags = preprocess_frontmatter(frontmatter)
-
-                # Parse the YAML frontmatter
                 data = safe_load_frontmatter(frontmatter)
                 if data is not None:
-
-                    # Preprocessing: After parsing the YAML, restore the HTML tags in place of the placeholders
                     data = restore_html_tags(data, html_tags)
-                
-                    # Depth Level: Calculate relative path, directory depth and TOC
                     rel_path = os.path.relpath(file_path, os.path.join(repo_dir, docs_dir))
-
-                    # Depth Level: Calculate the depth of each section
-                    depth = rel_path.count(os.sep)  # Count separators to determine depth
-                    file_basename = os.path.basename(file_path)                    
+                    depth = rel_path.count(os.sep)
+                    file_basename = os.path.basename(file_path)
                     if file_basename.startswith("index.") and depth > 0:
-                        depth += -1  # or another title for the main index
-                    indent = '&nbsp;' * 5 * depth  # Adjust indentation based on depth
+                        depth += -1
+                    indent = '&nbsp;' * 5 * depth
 
-                    # Numbering: Ensure numbering has enough levels
                     while len(numbering) <= depth:
                         numbering.append(0)
 
-                    # Numbering: Increment at the current level
                     numbering[depth] += 1
 
-                    # Numbering: Reset for any lower levels
                     for i in range(depth + 1, len(numbering)):
                         numbering[i] = 0
                     
-                    # Numbering: Create entry
                     toc_numbering = f"{'.'.join(map(str, numbering[:depth + 1]))}"
-
-                    # TOC: Generate the section title
                     toc_title = data.get('title', os.path.splitext(os.path.basename(file_path))[0].title())
                     toc_full_title = f"{toc_numbering} - {toc_title}"
                     toc += f"{indent}<a href='#{toc_full_title}'>{toc_full_title}</a><br/>"
 
-                    # Page Content: Format the parsed YAML to HTML
                     html_page_content = f"""
                     <h1>{toc_full_title}</h1>
                     <div class="doc-path"><p>Documentation path: {file_path.replace(chr(92),'/').replace('.mdx', '').replace(repo_dir + '/' + docs_dir,'')}</p></div>
@@ -268,78 +223,99 @@ def process_files(files, repo_dir, docs_dir):
                         </div>
                         """
                     html_page_content += '</br>'
-
                 else:
                     html_page_content = ""
             else:
                 html_page_content = ""
 
-            # Convert Markdown to HTML with table support and add content to the identified header
             html_page_content += markdown.markdown(md_content, extensions=['fenced_code', 'codehilite', 'tables', 'footnotes', 'toc', 'abbr', 'attr_list', 'def_list', 'smarty', 'admonition'])
-            
-            # Add page content to all cumulated pages content
             html_all_pages_content += html_page_content
 
-            # Add a page break unless it is the last file
             if index < len(files) - 1:
                 html_all_pages_content += '<div class="page-break"></div>'
     
-    # Prepend the ToC to the beginning of the HTML content
     toc_html = f"""<div style="padding-bottom: 10px"><div style="padding-bottom: 20px"><h1>Table of Contents</h1></div>{toc}</div><div style="page-break-before: always;">"""
     html_all_content = toc_html + html_all_pages_content
 
-    # Finalize html formatting
-    html_all_pages_content  = html_header + html_all_pages_content + "</body></html>"
-    toc_html                = html_header + toc_html + "</body></html>"
-    html_all_content        = html_header + html_all_content + "</body></html>"
+    html_all_pages_content = html_header + html_all_pages_content + "</body></html>"
+    toc_html = html_header + toc_html + "</body></html>"
+    html_all_content = html_header + html_all_content + "</body></html>"
 
     return(html_all_content, toc_html, html_all_pages_content)
 
 
 def find_latest_version(html_content):
-    # Regular expression to find versions like v14.2.0
     version_pattern = re.compile(r"v(\d+\.\d+\.\d+)")
     versions = version_pattern.findall(html_content)
-    # Remove duplicates and sort versions
     unique_versions = sorted(set(versions), key=lambda v: version.parse(v), reverse=True)
     return unique_versions[0] if unique_versions else None
 
 
-if __name__ == "__main__":
+def generate_pdf(html_content, output_pdf, format_options=None):
+    """
+    Generate PDF from HTML content using Playwright
+    """
+    default_format = {
+        'format': 'A4',
+        'margin': {
+            'top': '50px',
+            'right': '50px',
+            'bottom': '50px',
+            'left': '50px'
+        },
+        'print_background': True,
+        'display_header_footer': True,
+        'header_template': '<div style="font-size: 10px; text-align: right; width: 100%; padding-right: 20px; margin-top: 20px;"><span class="pageNumber"></span> of <span class="totalPages"></span></div>',
+        'footer_template': '<div style="font-size: 10px; text-align: center; width: 100%; margin-bottom: 20px;"><span class="url"></span></div>'
+    }
+    
+    format_options = format_options or default_format
 
-    # Define the output PDF file name
-    # project_title = "Next.js v14 Documentation"
-    # output_pdf = "Next.js_v14_Documentation.pdf"
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        
+        # Set viewport size to ensure consistent rendering
+        page.set_viewport_size({"width": 1280, "height": 1024})
+        
+        # Set content and wait for network idle
+        page.set_content(html_content, wait_until='networkidle')
+        
+        # Wait for any images and fonts to load
+        page.wait_for_load_state('networkidle')
+        page.wait_for_load_state('domcontentloaded')
+        
+        # Generate PDF
+        page.pdf(path=output_pdf, **format_options)
+        
+        browser.close()
+
+
+if __name__ == "__main__":
     export_html = False
 
-    # Clone the repository and checkout the canary branch
     repo_dir = "nextjs-docs" 
     repo_url = "https://github.com/vercel/next.js.git"
     branch = "canary"
     docs_dir = "docs"
 
-    # Define a base path and quality for the image URLs
     Change_img_url = True
     base_path = "https://nextjs.org/_next/image?url="
     path_args = "&w=1920&q=75"
 
-    # Clone the repository
     clone_repo(repo_url, branch, docs_dir, repo_dir)
 
-    # Traverse the docs directory and convert each markdown file to HTML
-    print ("Converting the Documentation to HTML...")
+    print("Converting the Documentation to HTML...")
     docs_dir_full_path = os.path.join(repo_dir, docs_dir)
     files_to_process = get_files_sorted(docs_dir_full_path)
     html_all_content, _, _ = process_files(files_to_process, repo_dir, docs_dir)
     print("Converted all MDX to HTML.")
 
-    # Save the HTML content to a file for inspection
     if export_html:
         with open('output.html', 'w', encoding='utf8') as f:
             f.write(html_all_content)
             print("HTML Content exported.")
 
-    # Find the latest version in the HTML content
     latest_version = find_latest_version(html_all_content)
     if latest_version:
         project_title = f"""Next.js Documentation v{latest_version}"""
@@ -348,7 +324,6 @@ if __name__ == "__main__":
         project_title = "Next.js Documentation"
         output_pdf = "Next.js_Documentation.pdf"
 
-    # Define the cover HTML with local CSS file
     cover_html = f"""
     <html>
         <head>
@@ -367,26 +342,38 @@ if __name__ == "__main__":
     </html>
     """
 
-    # Write the cover HTML to a temporary file
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.html') as cover_file:
-        cover_file.write(cover_html.encode('utf-8'))
-        print("HTML Cover exported.")
+    format_options = {
+                'format': 'A4',
+                'margin': {
+                    'top': '50px',
+                    'right': '50px',
+                    'bottom': '50px',
+                    'left': '50px'
+                },
+                'print_background': True,
+                'display_header_footer': True,
+                'header_template': f'''
+                    <div style="font-size: 10px; padding: 10px 20px; margin-top: 20px;">
+                        <span style="float: left;">{project_title}</span>
+                        <span style="float: right;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+                    </div>
+                ''',
+                'footer_template': f'''
+                    <div style="font-size: 10px; padding: 10px 20px; margin-bottom: 20px; text-align: center;">
+                        Generated on {datetime.now().strftime("%Y-%m-%d")}
+                    </div>
+                '''
+            }
 
-    # Convert the combined HTML content to PDF with a cover and a table of contents
+            # Check if file is open
     if is_file_open(output_pdf):
-        print("The output file is already open in another process. Please close it and try again.")
+                print("The output file is already open in another process. Please close it and try again.")
     else:
-        options = {
-            'encoding': 'UTF-8',
-            'page-size': 'A4',
-            'quiet': '',
-            'image-dpi': 150, # General reco.: printer - hq, 300 dpi| ebook - low quality, 150 dpi| screen-view-only quality, 72 dpi
-            'image-quality': 75,
-            # 'no-outline': None,
-            # 'no-images': None,
-        }
-        pdfkit.from_string(html_all_content, output_pdf, options=options, cover=cover_file.name, toc={})
-        print("Created the PDF file successfully.")
+                try:
+                    print("Generating PDF...")
+                    # Generate PDF with cover page and content
+                    generate_pdf(cover_html + html_all_content, output_pdf, format_options)
+                    print("Created the PDF file successfully.")
 
-    # Delete the temporary file
-    os.unlink(cover_file.name)
+                except Exception as e:
+                    print(f"Error generating PDF: {str(e)}")
