@@ -32,23 +32,23 @@ Fork of the original [Docs-Exporter](https://github.com/Riyooo/Docs-Exporter). T
   - `gitpython`
 - Ensure you have Playwright installed and configured:
 
-		```bash
- 		 pip install playwright
-	 	 playwright install
-		  ```
+```bash
+pip install playwright
+playwright install
+```
 
 ### Clone the Repository and Install
 Clone the project repository, create a virtual environment, activate it, and install requirements.
 
 ---
-	```bash
-	git clone https://github.com/pacnpal/Docs-Exporter.git
-	cd Docs-Exporter
-	python -m venv .venv
-	source .venv/bin/activate
-	pip install -r requirements.txt
-	playwright install
-	```
+```bash
+git clone https://github.com/pacnpal/Docs-Exporter.git
+cd Docs-Exporter
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+playwright install
+```
 ## Usage
 
 ### 1. Clone and Update Nextjs Repository
