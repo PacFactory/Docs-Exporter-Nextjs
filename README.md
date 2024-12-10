@@ -4,6 +4,8 @@
 
 The script automates the process of cloning documentation repositories, converting Markdown files to HTML, and generating PDF files. This README covers installation and usage.
 
+Fork of the original [Docs-Exporter](https://github.com/Riyooo/Docs-Exporter). Thanks to Riyoo for the original!
+
 ---
 
 ## Features
