@@ -70,7 +70,7 @@ docs_dir = "docs"
 ```
 
 ### Output
-- PDF file: `Next.js_Docs_vXX.XX.X_YYYY-MM-DD.pdf`
+- PDF file: `Next.js_Docs_vXX.XX.X_YYYY-MM-DD.pdf` or `Next.js_Documentation.pdf`
 - Logs: Process information printed to the terminal.
 
 ---

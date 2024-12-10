@@ -44,11 +44,6 @@
 
 ---
 
-## Removed Features
-- Any obsolete or unused features from `export-docs.old.py` were removed to streamline the codebase.
-
----
-
 ## Performance Improvements
 - Optimized file processing loop to handle large repositories more efficiently.
 - Improved Playwright's rendering performance by preloading images and resources.
